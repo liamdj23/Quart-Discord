@@ -25,7 +25,8 @@ class DiscordOAuth2HttpClient(abc.ABC):
         "DISCORD_OAUTH2_TOKEN",
     ]
 
-    def __init__(self, app, client_id=None, client_secret=None, redirect_uri=None, bot_token=None, users_cache=None):
+    def __init__(self, app, client_id=None, client_secret=None, redirect_uri=None, bot_token=None, users_cache=None,
+                 locks_cache=None):
         self.client_id = client_id or app.config["DISCORD_CLIENT_ID"]
         self.__client_secret = client_secret or app.config["DISCORD_CLIENT_SECRET"]
         self.redirect_uri = redirect_uri or app.config["DISCORD_REDIRECT_URI"]
@@ -33,6 +34,10 @@ class DiscordOAuth2HttpClient(abc.ABC):
         self.users_cache = cachetools.LFUCache(
             app.config.get("DISCORD_USERS_CACHE_MAX_LIMIT", configs.DISCORD_USERS_CACHE_DEFAULT_MAX_LIMIT)
         ) if users_cache is None else users_cache
+        self.locks_cache = cachetools.TTLCache(
+            maxsize=app.config.get("LOCKS_CACHE_DEFAULT_MAX_LIMIT", configs.LOCKS_CACHE_DEFAULT_MAX_LIMIT),
+            ttl=app.config.get("LOCKS_CACHE_DEFAULT_TTL", configs.LOCKS_CACHE_DEFAULT_TTL)
+        ) if locks_cache is None else locks_cache
         if not issubclass(self.users_cache.__class__, Mapping):
             raise ValueError("Instance users_cache must be a mapping like object.")
         if "http://" in self.redirect_uri:

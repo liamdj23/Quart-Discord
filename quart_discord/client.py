@@ -1,6 +1,7 @@
 import jwt
 import typing
 import discord
+import asyncio
 
 from . import configs, _http, models, utils, exceptions
 
@@ -193,7 +194,13 @@ class DiscordOAuth2Session(_http.DiscordOAuth2HttpClient):
         quart_discord.models.User
 
         """
-        return models.User.get_from_cache() or await models.User.fetch_from_api()
+        lock = current_app.discord.locks_cache.get(session.get("DISCORD_OAUTH2_TOKEN")["access_token"])
+        if lock is None:
+            lock = asyncio.Lock()
+            current_app.discord.locks_cache.update({session.get("DISCORD_OAUTH2_TOKEN")["access_token"]: lock})
+
+        async with lock:
+            return models.User.get_from_cache() or await models.User.fetch_from_api()
 
     @staticmethod
     async def fetch_connections() -> list:
@@ -231,12 +238,18 @@ class DiscordOAuth2Session(_http.DiscordOAuth2HttpClient):
             List of :py:class:`quart_discord.models.Guild` objects.
 
         """
-        if use_cache:
-            user = models.User.get_from_cache()
-            try:
-                if user.guilds is not None:
-                    return user.guilds
-            except AttributeError:
-                pass
+        lock = current_app.discord.locks_cache.get(session.get("DISCORD_OAUTH2_TOKEN")["access_token"])
+        if lock is None:
+            lock = asyncio.Lock()
+            current_app.discord.locks_cache.update({session.get("DISCORD_OAUTH2_TOKEN")["access_token"]: lock})
 
-        return await models.Guild.fetch_from_api()
+        async with lock:
+            if use_cache:
+                user = models.User.get_from_cache()
+                try:
+                    if user.guilds is not None:
+                        return user.guilds
+                except AttributeError:
+                    pass
+
+            return await models.Guild.fetch_from_api()
