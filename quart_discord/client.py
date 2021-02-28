@@ -1,7 +1,7 @@
 import jwt
 import typing
-import discord
 import asyncio
+import discord
 
 from . import configs, _http, models, utils, exceptions
 
@@ -60,6 +60,14 @@ class DiscordOAuth2Session(_http.DiscordOAuth2HttpClient):
         if isinstance(_state, bytes):
             _state = _state.decode()
         return _state
+
+    async def fetch_lock(self):
+        async with self.locksmith_lock:
+            lock = current_app.discord.locks_cache.get(session.get("DISCORD_OAUTH2_TOKEN")["access_token"])
+            if lock is None:
+                lock = asyncio.Lock()
+                current_app.discord.locks_cache.update({session.get("DISCORD_OAUTH2_TOKEN")["access_token"]: lock})
+            return lock
 
     async def create_session(
             self, scope: list = None, *, data: dict = None, prompt: bool = True,
@@ -185,8 +193,7 @@ class DiscordOAuth2Session(_http.DiscordOAuth2HttpClient):
         async with await self._make_session() as discord_:
             return discord_.authorized
 
-    @staticmethod
-    async def fetch_user() -> models.User:
+    async def fetch_user(self) -> models.User:
         """This method returns user object from the internal cache if it exists otherwise makes an API call to do so.
 
         Returns
@@ -194,11 +201,10 @@ class DiscordOAuth2Session(_http.DiscordOAuth2HttpClient):
         quart_discord.models.User
 
         """
-        lock = current_app.discord.locks_cache.get(session.get("DISCORD_OAUTH2_TOKEN")["access_token"])
-        if lock is None:
-            lock = asyncio.Lock()
-            current_app.discord.locks_cache.update({session.get("DISCORD_OAUTH2_TOKEN")["access_token"]: lock})
+        if current_app.discord.locks_cache is None:
+            return models.User.get_from_cache() or await models.User.fetch_from_api()
 
+        lock = await self.fetch_lock()
         async with lock:
             return models.User.get_from_cache() or await models.User.fetch_from_api()
 
@@ -222,8 +228,7 @@ class DiscordOAuth2Session(_http.DiscordOAuth2HttpClient):
 
         return await models.UserConnection.fetch_from_api()
 
-    @staticmethod
-    async def fetch_guilds(use_cache=True) -> list:
+    async def fetch_guilds(self, use_cache=True) -> list:
         """This method returns list of guild objects from internal cache if it exists otherwise makes an API
         call to do so.
 
@@ -238,11 +243,18 @@ class DiscordOAuth2Session(_http.DiscordOAuth2HttpClient):
             List of :py:class:`quart_discord.models.Guild` objects.
 
         """
-        lock = current_app.discord.locks_cache.get(session.get("DISCORD_OAUTH2_TOKEN")["access_token"])
-        if lock is None:
-            lock = asyncio.Lock()
-            current_app.discord.locks_cache.update({session.get("DISCORD_OAUTH2_TOKEN")["access_token"]: lock})
+        if current_app.discord.locks_cache is None:
+            if use_cache:
+                user = models.User.get_from_cache()
+                try:
+                    if user.guilds is not None:
+                        return user.guilds
+                except AttributeError:
+                    pass
 
+            return await models.Guild.fetch_from_api()
+
+        lock = await self.fetch_lock()
         async with lock:
             if use_cache:
                 user = models.User.get_from_cache()

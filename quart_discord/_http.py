@@ -1,5 +1,6 @@
 import cachetools
 import aiohttp
+import asyncio
 import typing
 import os
 import abc
@@ -34,10 +35,8 @@ class DiscordOAuth2HttpClient(abc.ABC):
         self.users_cache = cachetools.LFUCache(
             app.config.get("DISCORD_USERS_CACHE_MAX_LIMIT", configs.DISCORD_USERS_CACHE_DEFAULT_MAX_LIMIT)
         ) if users_cache is None else users_cache
-        self.locks_cache = cachetools.TTLCache(
-            maxsize=app.config.get("LOCKS_CACHE_DEFAULT_MAX_LIMIT", configs.LOCKS_CACHE_DEFAULT_MAX_LIMIT),
-            ttl=app.config.get("LOCKS_CACHE_DEFAULT_TTL", configs.LOCKS_CACHE_DEFAULT_TTL)
-        ) if locks_cache is None else locks_cache
+        self.locks_cache = locks_cache
+        self.locksmith_lock = asyncio.Lock() if locks_cache is not None else None
         if not issubclass(self.users_cache.__class__, Mapping):
             raise ValueError("Instance users_cache must be a mapping like object.")
         if "http://" in self.redirect_uri:
